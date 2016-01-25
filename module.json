@@ -1,0 +1,16 @@
+{
+  "name": "bikesense",
+  "version": "0.0.0",
+  "bin": "./source",
+  "private": true,
+  "description": "bikesense",
+  "author": "Carmelo Migliore <car.miglio@gmail.com>",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "mbed-drivers": "carmelomigliore/mbed-drivers",
+    "ble": "^2.1.12",
+    "sal": "^1.1.1",
+    "mbedtls": "^2.2.0",
+    "sockets": "^1.1.0"
+  }
+}
