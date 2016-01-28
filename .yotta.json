@@ -1,6 +1,5 @@
 {
   "build": {
-    "target": "target-st-nucleo-l476rg-st-ble-serialmodem-gcc,carmelomigliore/target-st-nucleo-l476rg-st-ble-serialmodem-gcc"
+    "target": "target-st-nucleo-l476rg-st-ble-serialmodem-gcc,*"
   }
 }
-

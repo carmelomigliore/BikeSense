@@ -3,6 +3,8 @@
 #include "sockets/v0/TCPStream.h"
 #include "sockets/v0/UDPSocket.h"
 #include "sal-stack-lwip/lwipv4_init.h"
+#include "ble/BLE.h"
+#include "ble/services/iBeacon.h"
 
 // 
 
@@ -81,30 +83,6 @@ public:
 
 
 static void blinky(void) {
-    
-   /* static Timer tim;
-    static int started = 0;
-    if(started == 0){
-    	tim.start();
-        started=1;
-    }
-    //rasp.baud(9600);
-    printf("Malvagio... buahahahahahaha %d\n",tim.read_ms());
-    /*char* dino = (char*)calloc(90000,sizeof(char));
-    printf("Allocated 90000 chars on heap\n");
-    dino[0] = 'D';
-    dino[1] = 'I';
-    dino[2] = 'O';
-    dino[3] = 0;
-    printf("%s\n",dino);
-    free (dino);
-    char bubba[30100];
-    printf("Allocated 30100 chars on stack\n");
-    bubba[0] = 'D';
-    bubba[1] = 'I';
-    bubba[2] = 'O';
-    bubba[3] = 0;
-    printf("%s\n",bubba);*/
     static DigitalOut led(LED1);
     led=!led;
 }
@@ -149,6 +127,57 @@ void resolve_dns(){
 }
 
 
+static iBeacon* ibeaconPtr;
+
+/**
+ * This function is called when the ble initialization process has failled
+ */
+void onBleInitError(BLE &ble, ble_error_t error)
+{
+    /* Initialization error handling should go here */
+     printf("\nEzechiele 25-17");
+}
+
+/**
+ * Callback triggered when the ble initialization process has finished
+ */
+void bleInitComplete(BLE::InitializationCompleteCallbackContext *params)
+{
+    printf("\nBLE init complete");
+    BLE&        ble   = params->ble;
+    ble_error_t error = params->error;
+
+    if (error != BLE_ERROR_NONE) {
+        /* In case of error, forward the error handling to onBleInitError */
+        onBleInitError(ble, error);
+        return;
+    }
+
+    /* Ensure that it is the default instance of BLE */
+    if(ble.getInstanceID() != BLE::DEFAULT_INSTANCE) {
+        return;
+    }
+
+    /**
+     * The Beacon payload has the following composition:
+     * 128-Bit / 16byte UUID = E2 0A 39 F4 73 F5 4B C4 A1 2F 17 D1 AD 07 A9 61
+     * Major/Minor  = 0x1122 / 0x3344
+     * Tx Power     = 0xC8 = 200, 2's compliment is 256-200 = (-56dB)
+     *
+     * Note: please remember to calibrate your beacons TX Power for more accurate results.
+     */
+    static const uint8_t uuid[] = {0xE2, 0x0A, 0x39, 0xF4, 0x73, 0xF5, 0x4B, 0xC4,
+                                   0xA1, 0x2F, 0x17, 0xD1, 0xAD, 0x07, 0xA9, 0x61};
+    uint16_t majorNumber = 1122;
+    uint16_t minorNumber = 3344;
+    uint16_t txPower     = 0xC8;
+    ibeaconPtr = new iBeacon(ble, uuid, majorNumber, minorNumber, txPower);
+
+    ble.gap().setAdvertisingInterval(1000); /* 1000ms. */
+    ble.gap().startAdvertising();
+}
+
+
 static FONA808 myFona(D8,D2,D12);
 
 
@@ -163,8 +192,10 @@ static void fona_prova(void){
 
 void app_start(int, char**) {
    minar::Scheduler::postCallback(blinky).period(minar::milliseconds(1000));
+    BLE &ble = BLE::Instance();
+    ble.init(bleInitComplete);
    // minar::Scheduler::postCallback(enterSTOP).delay(minar::milliseconds(10000));
-   minar::Scheduler::postCallback(fona_prova);
+   //minar::Scheduler::postCallback(fona_prova);
 
 }
 
