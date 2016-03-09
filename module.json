@@ -12,6 +12,7 @@
     "sal": "^1.1.1",
     "mbedtls": "^2.2.0",
     "sockets": "^1.1.0",
-    "mbed-tls-sockets": "~0.1.0"
+    "mbed-tls-sockets": "~0.1.0",
+    "mbed-client": "^1.2.20"
   }
 }
