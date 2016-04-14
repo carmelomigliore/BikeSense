@@ -6,7 +6,7 @@
 #include "ble/BLE.h"
 //#include "ble/services/UARTService.h"
 #include "BikeSenseService.h"
-#include "MMA8451Q.h"
+#include "Sensors.h"
 
 // 
 //#ifndef DEBUG
@@ -19,21 +19,22 @@
 #define DEBUG_PRINT(fmt, args...)    /* Don't do anything in release builds */
 #endif
 
-const static char     DEVICE_NAME[] = "BikeSense";
+static const char DEVICE_NAME[] = "BikeSense";
 static const uint16_t uuid16_list[] = {BikeSenseService::BIKESENSE_SERVICE_UUID/*, UARTServiceShortUUID*/};
 BikeSenseService *bikeSenseServicePtr;
 //UARTService *uartServicePtr;
 //BLEDevice   ble;
 
 static FONA808 myFona(D8,D2,D12);
-static MMA8451Q acc(D14,D15,PA_0,0x1d<<1);
+//static MMA8451Q acc(D14,D15,PA_0,0x1d<<1);
+Sensors nucleoSensors;
 
 int x=100,y=100,z=100;
 bool flag = false;
 uint8_t anti = 0;
 int posindex = 0;
 
-float positions[][2] = {{7.662717103958131,45.062343893659175},{7.663382291793824,45.063329047712855},{7.66398310661316,45.06413989254349},{7.664508819580079,45.06488252538225},{7.664937973022462,45.065511482384075},{7.665388584136964,45.06614043246582},{7.665785551071168,45.06668602211236},{7.666150331497193,45.06723160655154},{7.665538787841798,45.06749681932851},{7.664905786514283,45.067724143586574},{7.66424059867859,45.06797419922623},{7.663865089416505,45.067595326618004},{7.663575410842896,45.06720129644151},{7.664090394973756,45.067049745650394}};
+float positions[][2] = {{7.661740779876708,45.06115410805569},{7.6621055603027335,45.06163911918919},{7.662513256072997,45.0622302209452},{7.662942409515381,45.062836472808016},{7.663350105285645,45.0634578742955},{7.663757801055907,45.06400348954482},{7.664208412170409,45.064564255346944},{7.664444446563721,45.06497345935262},{7.6647233963012695,45.065367504885955},{7.66495943069458,45.06574639226037},{7.665302753448486,45.06618589846858},{7.66568899154663,45.06671633249558},{7.666032314300537,45.06723160655151},{7.666611671447754,45.067186141380475},{7.667191028594971,45.06700428033471},{7.667641639709473,45.066837573867794},{7.668199539184569,45.06661024608395},{7.668821811676025,45.066398072670026},{7.669465541839599,45.06620105379482},{7.670152187347412,45.06594341270263},{7.670624256134032,45.06551906013708},{7.671182155609131,45.06539781596832},{7.67195463180542,45.06527657154241},{7.672770023345947,45.06501892628354},{7.673542499542235,45.064730968443584},{7.673907279968261,45.06459456685522},{7.674615383148194,45.064352074338984},{7.67519474029541,45.06413989254349},{7.675881385803222,45.06386708622066},{7.676653861999511,45.063594278596014},{7.677297592163086,45.06338209398792},{7.677855491638183,45.06350334243186},{7.67819881439209,45.06397317772311},{7.678391933441161,45.06429145104921},{7.67869234085083,45.06471581272761},{7.6788854598999015,45.06504923755073},{7.67918586730957,45.06535234933873},{7.679443359375,45.065716081362844},{7.6796579360961905,45.066019189614984},{7.67993688583374,45.066382917396055},{7.680301666259766,45.06689819445748},{7.680559158325194,45.067292226723325},{7.680881023406982,45.06773172104626},{7.681288719177246,45.06823183116537},{7.681546211242675,45.068671318263945},{7.681739330291748,45.06897441084582},{7.681975364685059,45.06953512788536},{7.682404518127441,45.07003522222574},{7.68268346786499,45.07055046636354},{7.683284282684325,45.0707929325859},{7.6844000816345215,45.07083839488808},{7.685215473175048,45.0705656205326},{7.686009407043457,45.07027769063389}};
 
 float longitude = 7.662717103958131;
 float latitude = 45.062343893659175;
@@ -43,10 +44,12 @@ static void clearFlag(){
 }
 
 static void setPosition(){
-	latitude=positions[posindex][1];
-	longitude=positions[posindex][0];
-	if(++posindex==14){
-		posindex=0;
+	if(!anti){
+		latitude=positions[posindex][1];
+		longitude=positions[posindex][0];
+		if(++posindex==52){
+			posindex=0;
+		}
 	}
 } 
 
@@ -85,7 +88,7 @@ public:
    
     void onConnect(TCPStream *s) {
     	connected=true;
-  	//DEBUG_PRINT("\nConnected!"); 
+  	DEBUG_PRINT("\nConnected!"); 
         s->setOnReadable(TCPStream::ReadableHandler_t(this, &Connection::onReceive));
         s->setOnDisconnect(TCPStream::DisconnectHandler_t(this, &Connection::onDisconnect));
         mbed::util::FunctionPointer0<void> ptr(this,&Connection::sendPosition);
@@ -101,6 +104,7 @@ public:
   }
   
   void sendHole(){
+  		DEBUG_PRINT("Sending Hole!\n");
   	       send[0] = 666;
   	       float* aux = (float*)&(send[1]);
   	       aux[0] = latitude;
@@ -112,7 +116,7 @@ public:
 		//s->error_check(err);
   }
   
-  void sendAlarm(){
+  void sendAnti(){
   	send[0] = 668;
        // send[1] = acc.getAccY();
 	//send[2] = acc.getAccZ();
@@ -122,15 +126,17 @@ public:
   }
   
   void sendPosition(){
-  	if(!anti){
 	  	DEBUG_PRINT("Sending position\n");
-	  	 send[0] = 665;
-	  	       float* aux = (float*)&(send[1]);
-	  	       aux[0] = latitude;
-	  	       aux[1] = longitude;
-	  		socket_error_t err = _sock.send(send, 16*sizeof(uint16_t));
-			DEBUG_PRINT("MBED: Socket Error: %s (%d)\r\n", socket_strerror(err), err);
-		}
+	  	send[0] = 665;
+  	        float* aux = (float*)&(send[1]);
+  	        aux[0] = latitude;
+  	        aux[1] = longitude;
+  	        aux[2] = rand(); // GAS VALUE TO BE READ
+  	        aux[3] = nucleoSensors.getTemperature();
+  	        aux[4] = nucleoSensors.getHumidity();
+  	        aux[5] = nucleoSensors.getPressure();
+  		socket_error_t err = _sock.send(send, 16*sizeof(uint16_t));
+		DEBUG_PRINT("MBED: Socket Error: %s (%d)\r\n", socket_strerror(err), err);
   }
   
    bool isConnected(){
@@ -138,8 +144,10 @@ public:
    }
 
    void onDisconnect(TCPStream *s) {
-        s->close();
-        connected=false;
+   	DEBUG_PRINT("Disconnected! Reconnecting now...");
+       // s->close();
+        //connected=false;
+        connect(sockaddr);
        // DEBUG_PRINT("{{%s}}\r\n",(error()?"failure":"success"));
         //DEBUG_PRINT("{{end}}\r\n");
     }
@@ -174,11 +182,12 @@ static void readMma(){
 	uint16_t send[40];
 	int tempx, tempy, tempz; 
 	//acc.registerDump();
-	tempx = 100*acc.getAccX();
-	tempy = 100*acc.getAccY();
-	tempz = 100*acc.getAccZ();
+	AxesRaw_TypeDef axes = nucleoSensors.readAccelerometer();
+	tempx = axes.AXIS_X;
+	tempy = axes.AXIS_Y;
+	tempz = axes.AXIS_Z;
 	DEBUG_PRINT("\nReadMMA2\n");	
-	if((tempx - x > 50 || tempx - x < -50 || tempy-y > 50 || tempy -y < -50) && !flag){
+	if((tempz - z > 250 || tempz - z < -250) && !flag){
 		flag = true;
 		conn->sendHole();
 		bikeSenseServicePtr->updatePotholeValue(1);
@@ -189,8 +198,8 @@ static void readMma(){
 	y = tempy;
 	z = tempz;
 	printf("X: %d\n", x);
-	/*printf("Y: %d\n", y);
-	printf("Z: %d\n", z);*/
+	printf("Y: %d\n", y);
+	printf("Z: %d\n", z);
 	
 }
 
@@ -208,15 +217,14 @@ public:
 
     void onDNS(Socket *s, struct socket_addr addr, const char *domain) {
         (void) s;
+        DEBUG_PRINT("\nonDNS enter\n");
         SocketAddr sa;
         char buf[16];
         sa.setAddr(&addr);
         sa.fmtIPv4(buf,sizeof(buf));
         DEBUG_PRINT("Resolved %s to %s\r\n", domain, buf);
         myconn->connect(sa);
-        minar::Scheduler::postCallback(readMma).period(minar::milliseconds(200));
-        
-        
+        minar::Scheduler::postCallback(readMma).delay(minar::milliseconds(4000)).period(minar::milliseconds(300));
     }
 
     
@@ -239,11 +247,11 @@ static void setAnti(){
 	anti = !anti;
 }
 
-static void dummy(void){
+static void enableAnti(void){
 	//printf("Testing connection");
 	//conn->disconnect();
 	//conn->connect();
-	mbed::util::FunctionPointer0<void> ptr(conn,&Connection::sendAlarm);
+	mbed::util::FunctionPointer0<void> ptr(conn,&Connection::sendAnti);
         minar::Scheduler::postCallback(ptr.bind());
 	//conn->sendAlarm();
 	minar::Scheduler::postCallback(setAnti);
@@ -278,15 +286,16 @@ static void handler(void){
 
 void resolve_dns(){
 //butt.fall(dummy);
- //DEBUG_PRINT("\nResolve DNS");
  lwipv4_socket_init();
 
  conn = new Connection();
   r = new Resolver(conn);
  //r->connect("mbed.org");
  r->resolve("ec2-52-29-108-135.eu-central-1.compute.amazonaws.com");
+ //r->resolve("fp7-intrepid.no-ip.biz");
  /* r->connect("mbed.org");
  r->connect("mbed.org");*/
+ DEBUG_PRINT("\nResolve DNS complete");
 }
 
 
@@ -307,7 +316,10 @@ void disconnectionCallback(const Gap::DisconnectionCallbackParams_t *params)
 
 void onDataWrittenCallback(const GattWriteCallbackParams *params) {
         if ((params->handle == bikeSenseServicePtr->getCommandHandle())) {
-        	DEBUG_PRINT("OnDataWritten\n");
+        	uint16_t* data = (uint16_t*)(params->data);
+        	if(*data == 1 || *data == 2){
+        		enableAnti();
+        	}
         }
     }
 
@@ -336,6 +348,7 @@ void bleInitComplete(BLE::InitializationCompleteCallbackContext *params)
 
 	
 	bikeSenseServicePtr = new BikeSenseService (ble, 0,2,0,4,0,0,0 /* initial values */);
+	nucleoSensors.setBluetoothServicePtr(bikeSenseServicePtr);
 	//uartServicePtr = new UARTService(ble);
 
 	/* setup advertising */
@@ -352,6 +365,7 @@ void bleInitComplete(BLE::InitializationCompleteCallbackContext *params)
 	/* 1000ms. */
 	ble.gap().setAdvertisingInterval(1000);
 	ble.gap().startAdvertising();
+	 DEBUG_PRINT("\nBLE init complete END");
 }
 
 
@@ -361,7 +375,7 @@ static void fona_prova(void){
  do{
  	ret = myFona.connect("ibox.tim.it",NULL,NULL);
  } while(ret!=0);
- minar::Scheduler::postCallback(resolve_dns).delay(minar::milliseconds(8000));
+ minar::Scheduler::postCallback(resolve_dns).delay(minar::milliseconds(9000));
 }
 
 /*static void periodicRead(){
@@ -377,27 +391,6 @@ static void fona_prova(void){
 static InterruptIn i1(D11);
 static InterruptIn i2(D10);*/
 
-
-static void mmaInit(){
-	uint8_t ret = acc.getWhoAmI();
-	DEBUG_PRINT("Ret: %d\n",ret);
-	//acc.setPotholeInterrupt();
-	DEBUG_PRINT("Pothole interrupt set\n");
-	//float x = acc.getAccX();
-	//printf("X: %f\n", x);
-	/*printf("Accelerometer start\n");
-	if(!acc.begin(0x1C)){
-		printf("Birrozza\n");
-	}
-	else{
-		printf("Birretta\n");
-	}
-	printf("Accelerometer begin\n");
-	acc.setRange(MMA8451_RANGE_2_G);
-	printf("Accelerometer range set\n");
-	printf("Range: %d\n",2 << acc.getRange());*/
-	
-}
 
 
 /*static void i2csearch(){
@@ -415,12 +408,12 @@ static void mmaInit(){
 
 
 void app_start(int, char**) {
-   butt.fall(dummy);
+   butt.fall(enableAnti);
     minar::Scheduler::postCallback(blinky).period(minar::milliseconds(1000));
-    //minar::Scheduler::postCallback(readMma).period(minar::milliseconds(300)).delay(minar::milliseconds(2000));
+    //minar::Scheduler::postCallback(readMma).period(minar::milliseconds(500)).delay(minar::milliseconds(2000));
     BLE &ble = BLE::Instance();
     ble.init(bleInitComplete);
-    minar::Scheduler::postCallback(fona_prova).delay(minar::milliseconds(2000));
+    minar::Scheduler::postCallback(fona_prova);
     DEBUG_PRINT("Hello!\n");
     //minar::Scheduler::postCallback(mmaInit);
     
