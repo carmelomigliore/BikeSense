@@ -131,7 +131,7 @@ public:
   	        float* aux = (float*)&(send[1]);
   	        aux[0] = latitude;
   	        aux[1] = longitude;
-  	        aux[2] = rand(); // GAS VALUE TO BE READ
+  	        aux[2] = (float)((rand()%30)/10); // GAS VALUE TO BE READ
   	        aux[3] = nucleoSensors.getTemperature();
   	        aux[4] = nucleoSensors.getHumidity();
   	        aux[5] = nucleoSensors.getPressure();
