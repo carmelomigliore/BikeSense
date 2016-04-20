@@ -29,7 +29,7 @@ static FONA808 myFona(D8,D2,D12);
 //static MMA8451Q acc(D14,D15,PA_0,0x1d<<1);
 Sensors nucleoSensors;
 
-int x=100,y=100,z=100;
+int x=0,y=0,z=1000;
 bool flag = false;
 uint8_t anti = 0;
 int posindex = 0;
@@ -131,7 +131,7 @@ public:
   	        float* aux = (float*)&(send[1]);
   	        aux[0] = latitude;
   	        aux[1] = longitude;
-  	        aux[2] = (float)((rand()%30)/10); // GAS VALUE TO BE READ
+  	        aux[2] = (float)((5+(rand()%30))/10.0f); // GAS VALUE TO BE READ
   	        aux[3] = nucleoSensors.getTemperature();
   	        aux[4] = nucleoSensors.getHumidity();
   	        aux[5] = nucleoSensors.getPressure();
