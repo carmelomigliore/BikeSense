@@ -33,6 +33,7 @@ int x=0,y=0,z=1000;
 bool flag = false;
 uint8_t anti = 0;
 int posindex = 0;
+float gasvalue = 3.9;
 
 float positions[][2] = {{7.661740779876708,45.06115410805569},{7.6621055603027335,45.06163911918919},{7.662513256072997,45.0622302209452},{7.662942409515381,45.062836472808016},{7.663350105285645,45.0634578742955},{7.663757801055907,45.06400348954482},{7.664208412170409,45.064564255346944},{7.664444446563721,45.06497345935262},{7.6647233963012695,45.065367504885955},{7.66495943069458,45.06574639226037},{7.665302753448486,45.06618589846858},{7.66568899154663,45.06671633249558},{7.666032314300537,45.06723160655151},{7.666611671447754,45.067186141380475},{7.667191028594971,45.06700428033471},{7.667641639709473,45.066837573867794},{7.668199539184569,45.06661024608395},{7.668821811676025,45.066398072670026},{7.669465541839599,45.06620105379482},{7.670152187347412,45.06594341270263},{7.670624256134032,45.06551906013708},{7.671182155609131,45.06539781596832},{7.67195463180542,45.06527657154241},{7.672770023345947,45.06501892628354},{7.673542499542235,45.064730968443584},{7.673907279968261,45.06459456685522},{7.674615383148194,45.064352074338984},{7.67519474029541,45.06413989254349},{7.675881385803222,45.06386708622066},{7.676653861999511,45.063594278596014},{7.677297592163086,45.06338209398792},{7.677855491638183,45.06350334243186},{7.67819881439209,45.06397317772311},{7.678391933441161,45.06429145104921},{7.67869234085083,45.06471581272761},{7.6788854598999015,45.06504923755073},{7.67918586730957,45.06535234933873},{7.679443359375,45.065716081362844},{7.6796579360961905,45.066019189614984},{7.67993688583374,45.066382917396055},{7.680301666259766,45.06689819445748},{7.680559158325194,45.067292226723325},{7.680881023406982,45.06773172104626},{7.681288719177246,45.06823183116537},{7.681546211242675,45.068671318263945},{7.681739330291748,45.06897441084582},{7.681975364685059,45.06953512788536},{7.682404518127441,45.07003522222574},{7.68268346786499,45.07055046636354},{7.683284282684325,45.0707929325859},{7.6844000816345215,45.07083839488808},{7.685215473175048,45.0705656205326},{7.686009407043457,45.07027769063389}};
 
@@ -45,11 +46,13 @@ static void clearFlag(){
 
 static void setPosition(){
 	if(!anti){
-		latitude=positions[posindex][1];
-		longitude=positions[posindex][0];
 		if(++posindex==52){
 			posindex=0;
+			gasvalue=3.5;
 		}
+		latitude=positions[posindex][1];
+		longitude=positions[posindex][0];
+		
 	}
 } 
 
@@ -92,9 +95,10 @@ public:
         s->setOnReadable(TCPStream::ReadableHandler_t(this, &Connection::onReceive));
         s->setOnDisconnect(TCPStream::DisconnectHandler_t(this, &Connection::onDisconnect));
         mbed::util::FunctionPointer0<void> ptr(this,&Connection::sendPosition);
-         minar::Scheduler::postCallback(ptr.bind()).period(minar::milliseconds(4000));
+        minar::Scheduler::postCallback(setPosition).period(minar::milliseconds(4000));
+        minar::Scheduler::postCallback(ptr.bind()).period(minar::milliseconds(4000)).delay(minar::milliseconds(300));
 
-         minar::Scheduler::postCallback(setPosition).period(minar::milliseconds(4000));
+
         /*send[0] = 666;
 	       // send[1] = acc.getAccY();
 		//send[2] = acc.getAccZ();
@@ -131,11 +135,13 @@ public:
   	        float* aux = (float*)&(send[1]);
   	        aux[0] = latitude;
   	        aux[1] = longitude;
-  	        aux[2] = (float)((5+(rand()%30))/10.0f); // GAS VALUE TO BE READ
+  	        aux[2] = gasvalue;
   	        aux[3] = nucleoSensors.getTemperature();
   	        aux[4] = nucleoSensors.getHumidity();
   	        aux[5] = nucleoSensors.getPressure();
   		socket_error_t err = _sock.send(send, 16*sizeof(uint16_t));
+  		if(!anti)
+  			gasvalue-=0.02;
 		DEBUG_PRINT("MBED: Socket Error: %s (%d)\r\n", socket_strerror(err), err);
   }
   
@@ -147,6 +153,7 @@ public:
    	DEBUG_PRINT("Disconnected! Reconnecting now...");
        // s->close();
         //connected=false;
+        //_sock.disconnect();
         connect(sockaddr);
        // DEBUG_PRINT("{{%s}}\r\n",(error()?"failure":"success"));
         //DEBUG_PRINT("{{end}}\r\n");
@@ -155,7 +162,7 @@ public:
     socket_error_t connect(SocketAddr sa) {
     		
     		sockaddr = sa;
-      		socket_error_t err = _sock.connect(sa, 25, TCPStream::ConnectHandler_t(this, &Connection::onConnect));
+      		socket_error_t err = _sock.connect(sa, 3010, TCPStream::ConnectHandler_t(this, &Connection::onConnect));
 		//return _sock.resolve(address,UDPSocket::DNSHandler_t(this, &Resolver::onDNS));
 		//DEBUG_PRINT("\nerr: %d",err);
 		DEBUG_PRINT("MBED: Socket Error: %s (%d)\r\n", socket_strerror(err), err);
@@ -178,7 +185,7 @@ static Connection *conn;
 
 
 static void readMma(){
-	DEBUG_PRINT("\nReadMMA\n");
+	//DEBUG_PRINT("\nReadMMA\n");
 	uint16_t send[40];
 	int tempx, tempy, tempz; 
 	//acc.registerDump();
@@ -186,7 +193,7 @@ static void readMma(){
 	tempx = axes.AXIS_X;
 	tempy = axes.AXIS_Y;
 	tempz = axes.AXIS_Z;
-	DEBUG_PRINT("\nReadMMA2\n");	
+	//DEBUG_PRINT("\nReadMMA2\n");	
 	if((tempz - z > 250 || tempz - z < -250) && !flag){
 		flag = true;
 		conn->sendHole();
@@ -197,9 +204,9 @@ static void readMma(){
 	x = tempx;
 	y = tempy;
 	z = tempz;
-	printf("X: %d\n", x);
-	printf("Y: %d\n", y);
-	printf("Z: %d\n", z);
+	//printf("X: %d\n", x);
+	//printf("Y: %d\n", y);
+	//printf("Z: %d\n", z);
 	
 }
 
@@ -224,7 +231,7 @@ public:
         sa.fmtIPv4(buf,sizeof(buf));
         DEBUG_PRINT("Resolved %s to %s\r\n", domain, buf);
         myconn->connect(sa);
-        minar::Scheduler::postCallback(readMma).delay(minar::milliseconds(4000)).period(minar::milliseconds(300));
+        minar::Scheduler::postCallback(readMma).delay(minar::milliseconds(4000)).period(minar::milliseconds(200));
     }
 
     
@@ -291,8 +298,9 @@ void resolve_dns(){
  conn = new Connection();
   r = new Resolver(conn);
  //r->connect("mbed.org");
- r->resolve("ec2-52-29-108-135.eu-central-1.compute.amazonaws.com");
+ //r->resolve("ec2-52-29-108-135.eu-central-1.compute.amazonaws.com");
  //r->resolve("fp7-intrepid.no-ip.biz");
+ r->resolve("jol2.ddns.net");
  /* r->connect("mbed.org");
  r->connect("mbed.org");*/
  DEBUG_PRINT("\nResolve DNS complete");
@@ -368,6 +376,12 @@ void bleInitComplete(BLE::InitializationCompleteCallbackContext *params)
 	 DEBUG_PRINT("\nBLE init complete END");
 }
 
+static void readGPS(void){
+	myFona.enableGPS(true);
+	float latitude, longitude;
+	myFona.readGPSInfo(&latitude, &longitude);
+	DEBUG_PRINT("Latitude: %d, Longitude=%d\n",(long)(latitude*10000000), (long)(longitude*10000000));
+}
 
 static void fona_prova(void){
  //myFona.init();
@@ -375,7 +389,8 @@ static void fona_prova(void){
  do{
  	ret = myFona.connect("ibox.tim.it",NULL,NULL);
  } while(ret!=0);
- minar::Scheduler::postCallback(resolve_dns).delay(minar::milliseconds(9000));
+ //minar::Scheduler::postCallback(readGPS).period(minar::milliseconds(20000)).delay(minar::milliseconds(5000));
+ minar::Scheduler::postCallback(resolve_dns).delay(minar::milliseconds(14000));
 }
 
 /*static void periodicRead(){
@@ -404,8 +419,6 @@ static InterruptIn i2(D10);*/
     	}	
     	printf("%d devices found\n", count);
 }*/
-
-
 
 void app_start(int, char**) {
    butt.fall(enableAnti);
