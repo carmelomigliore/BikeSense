@@ -27,7 +27,7 @@ BikeSenseService *bikeSenseServicePtr;
 
 static FONA808 myFona(D8,D2,D12);
 //static MMA8451Q acc(D14,D15,PA_0,0x1d<<1);
-Sensors nucleoSensors;
+//Sensors nucleoSensors; //per riabilitarlo, cerca tutte le istanze di nucleoSensors in questo file e decommentale
 
 int x=0,y=0,z=1000;
 bool flag = false;
@@ -62,18 +62,35 @@ class Connection {
 private:
 	TCPStream _sock;
 	uint16_t* send;
-	bool connected;
+	bool connected, _error;
 	SocketAddr sockaddr;
+	UDPSocket _dns;
+	minar::callback_handle_t callbackSendPosition;
+	minar::callback_handle_t callbackSetPosition;
 
 public:
-	Connection(): _sock(SOCKET_STACK_LWIP_IPV4), connected(false){
-		_sock.open(SOCKET_AF_INET4);
-		_sock.setNagle(false);
+	Connection(): _sock(SOCKET_STACK_LWIP_IPV4), connected(false), _error(false), _dns(SOCKET_STACK_LWIP_IPV4){
+		_dns.open(SOCKET_AF_INET4);
 		 send = new uint16_t[16];
       		 for(int i =0; i< 16; i++){
 	  	 send[i] = i;
 		}
 	}
+	
+	void onError(Socket *s, socket_error_t err) {
+        (void) s;
+        DEBUG_PRINT("On Error - MBED: Socket Error: %s (%d)\r\n", socket_strerror(err), err);
+        _sock.close();
+        _error = true;
+        cancelPeriodicTasks();
+        mbed::util::FunctionPointer0<void> ptr(this,&Connection::connect);
+        minar::Scheduler::postCallback(ptr.bind()).delay(minar::milliseconds(4000));
+    }
+    
+    	bool errorHappened(){
+    		return _error;
+    	}
+	
 	void onReceive(Socket *s) {
         //DEBUG_PRINT("\nOnReceive");
 	uint16_t result[64];
@@ -85,26 +102,27 @@ public:
         send[1] = rand();
         send[2] = rand();
         socket_error_t err2 = _sock.send(send, 16*sizeof(float));
-        DEBUG_PRINT("MBED: Socket Error: %s (%d)\r\n", socket_strerror(err2), err2);
+        DEBUG_PRINT("OnReceive - MBED: Socket Error: %s (%d)\r\n", socket_strerror(err2), err2);
     }
 
    
     void onConnect(TCPStream *s) {
     	connected=true;
-  	DEBUG_PRINT("\nConnected!"); 
+  	DEBUG_PRINT("\nConnected!\n"); 
         s->setOnReadable(TCPStream::ReadableHandler_t(this, &Connection::onReceive));
         s->setOnDisconnect(TCPStream::DisconnectHandler_t(this, &Connection::onDisconnect));
+        s->setOnError(TCPStream::ErrorHandler_t(this, &Connection::onError));
         mbed::util::FunctionPointer0<void> ptr(this,&Connection::sendPosition);
-        minar::Scheduler::postCallback(setPosition).period(minar::milliseconds(4000));
-        minar::Scheduler::postCallback(ptr.bind()).period(minar::milliseconds(4000)).delay(minar::milliseconds(300));
+        callbackSetPosition = minar::Scheduler::postCallback(setPosition).period(minar::milliseconds(4000)).getHandle();
+        callbackSendPosition = minar::Scheduler::postCallback(ptr.bind()).period(minar::milliseconds(4000)).delay(minar::milliseconds(300)).getHandle();
 
 
         /*send[0] = 666;
-	       // send[1] = acc.getAccY();
-		//send[2] = acc.getAccZ();
-		socket_error_t err = _sock.send(send, 16*sizeof(uint16_t));
-		DEBUG_PRINT("MBED: Socket Error: %s (%d)\r\n", socket_strerror(err), err);
-		s->error_check(err);*/
+       // send[1] = acc.getAccY();
+	//send[2] = acc.getAccZ();
+	socket_error_t err = _sock.send(send, 16*sizeof(uint16_t));
+	DEBUG_PRINT("MBED: Socket Error: %s (%d)\r\n", socket_strerror(err), err);
+	s->error_check(err);*/
   }
   
   void sendHole(){
@@ -116,7 +134,7 @@ public:
 	       // send[1] = acc.getAccY();
 		//send[2] = acc.getAccZ();
 		socket_error_t err = _sock.send(send, 16*sizeof(uint16_t));
-		DEBUG_PRINT("MBED: Socket Error: %s (%d)\r\n", socket_strerror(err), err);
+		DEBUG_PRINT("SendHole - MBED: Socket Error: %s (%d)\r\n", socket_strerror(err), err);
 		//s->error_check(err);
   }
   
@@ -125,7 +143,7 @@ public:
        // send[1] = acc.getAccY();
 	//send[2] = acc.getAccZ();
 	socket_error_t err = _sock.send(send, 16*sizeof(uint16_t));
-	DEBUG_PRINT("MBED: Socket Error: %s (%d)\r\n", socket_strerror(err), err);
+	DEBUG_PRINT("SendAnti - MBED: Socket Error: %s (%d)\r\n", socket_strerror(err), err);
 	//s->error_check(err);
   }
   
@@ -136,40 +154,51 @@ public:
   	        aux[0] = latitude;
   	        aux[1] = longitude;
   	        aux[2] = gasvalue;
-  	        aux[3] = nucleoSensors.getTemperature();
-  	        aux[4] = nucleoSensors.getHumidity();
-  	        aux[5] = nucleoSensors.getPressure();
+  	        aux[3] =/* nucleoSensors.getTemperature()*/ 0;
+  	        aux[4] = /*nucleoSensors.getHumidity()*/ 0;
+  	        aux[5] = /*nucleoSensors.getPressure()*/ 0;
   		socket_error_t err = _sock.send(send, 16*sizeof(uint16_t));
   		if(!anti)
   			gasvalue-=0.02;
-		DEBUG_PRINT("MBED: Socket Error: %s (%d)\r\n", socket_strerror(err), err);
+		DEBUG_PRINT("SendPosition - MBED: Socket Error: %s (%d)\r\n", socket_strerror(err), err);
   }
   
    bool isConnected(){
    	return connected;
    }
+   
+   void cancelPeriodicTasks(){
+   	minar::Scheduler::cancelCallback(callbackSendPosition);
+   	minar::Scheduler::cancelCallback(callbackSetPosition);
+   }
 
    void onDisconnect(TCPStream *s) {
-   	DEBUG_PRINT("Disconnected! Reconnecting now...");
+   	DEBUG_PRINT("Disconnected! Goodbye...");
        // s->close();
         //connected=false;
-        //_sock.disconnect();
-        connect(sockaddr);
+        _sock.close();
+        _error = true;
+        //connect(sockaddr);
+        cancelPeriodicTasks();
+         mbed::util::FunctionPointer0<void> ptr(this,&Connection::connect);
+        minar::Scheduler::postCallback(ptr.bind()).delay(minar::milliseconds(4000));
        // DEBUG_PRINT("{{%s}}\r\n",(error()?"failure":"success"));
         //DEBUG_PRINT("{{end}}\r\n");
     }
 
     socket_error_t connect(SocketAddr sa) {
-    		
+    		_sock.open(SOCKET_AF_INET4);
+		_sock.setNagle(false);
     		sockaddr = sa;
-      		socket_error_t err = _sock.connect(sa, 3010, TCPStream::ConnectHandler_t(this, &Connection::onConnect));
+      		socket_error_t err = _sock.connect(sa, 25, TCPStream::ConnectHandler_t(this, &Connection::onConnect));
 		//return _sock.resolve(address,UDPSocket::DNSHandler_t(this, &Resolver::onDNS));
 		//DEBUG_PRINT("\nerr: %d",err);
-		DEBUG_PRINT("MBED: Socket Error: %s (%d)\r\n", socket_strerror(err), err);
+		DEBUG_PRINT("Connect - MBED: Socket Error: %s (%d)\r\n", socket_strerror(err), err);
+		
 		
     }
     
-    socket_error_t connect() {
+     void connect() {
     	connect(sockaddr);
     }
     
@@ -178,12 +207,29 @@ public:
     	_sock.close();
     }
     
-
+    void onDNS(Socket *s, struct socket_addr addr, const char *domain) {
+        (void) s;
+        DEBUG_PRINT("\nonDNS enter\n");
+        SocketAddr sa;
+        char buf[16];
+        sa.setAddr(&addr);
+        sa.fmtIPv4(buf,sizeof(buf));
+        DEBUG_PRINT("Resolved %s to %s\r\n", domain, buf);
+        this->connect(sa);
+       // minar::Scheduler::postCallback(readMma).delay(minar::milliseconds(4000)).period(minar::milliseconds(200));
+    }
+    
+    socket_error_t resolve(const char * address) {
+        //DEBUG_PRINT("Resolving %s...\r\n", address);
+        return _dns.resolve(address,UDPSocket::DNSHandler_t(this, &Connection::onDNS));
+    }
 };
 
 static Connection *conn;
 
 
+
+/*
 static void readMma(){
 	//DEBUG_PRINT("\nReadMMA\n");
 	uint16_t send[40];
@@ -209,11 +255,11 @@ static void readMma(){
 	//printf("Z: %d\n", z);
 	
 }
+*/
 
-
-class Resolver {
+/*class Resolver {
 private:
-    UDPSocket _dns;
+   
     Connection *myconn;
 public:
     Resolver(Connection *conn) : _dns(SOCKET_STACK_LWIP_IPV4) {
@@ -231,7 +277,7 @@ public:
         sa.fmtIPv4(buf,sizeof(buf));
         DEBUG_PRINT("Resolved %s to %s\r\n", domain, buf);
         myconn->connect(sa);
-        minar::Scheduler::postCallback(readMma).delay(minar::milliseconds(4000)).period(minar::milliseconds(200));
+       // minar::Scheduler::postCallback(readMma).delay(minar::milliseconds(4000)).period(minar::milliseconds(200));
     }
 
     
@@ -242,7 +288,7 @@ public:
     }
 };
 
-static Resolver *r;
+static Resolver *r;*/
 
 static void blinky(void) {
     static DigitalOut led(LED1);
@@ -258,10 +304,12 @@ static void enableAnti(void){
 	//printf("Testing connection");
 	//conn->disconnect();
 	//conn->connect();
-	mbed::util::FunctionPointer0<void> ptr(conn,&Connection::sendAnti);
-        minar::Scheduler::postCallback(ptr.bind());
-	//conn->sendAlarm();
-	minar::Scheduler::postCallback(setAnti);
+	if(conn!=NULL){
+		mbed::util::FunctionPointer0<void> ptr(conn,&Connection::sendAnti);
+		minar::Scheduler::postCallback(ptr.bind());
+		//conn->sendAlarm();
+		minar::Scheduler::postCallback(setAnti);
+	}
 		
 }
 
@@ -293,17 +341,25 @@ static void handler(void){
 
 void resolve_dns(){
 //butt.fall(dummy);
- lwipv4_socket_init();
 
- conn = new Connection();
-  r = new Resolver(conn);
- //r->connect("mbed.org");
- //r->resolve("ec2-52-29-108-135.eu-central-1.compute.amazonaws.com");
- //r->resolve("fp7-intrepid.no-ip.biz");
- r->resolve("jol2.ddns.net");
- /* r->connect("mbed.org");
- r->connect("mbed.org");*/
- DEBUG_PRINT("\nResolve DNS complete");
+}
+
+void connectionChecker(){
+
+	/*if(conn!= NULL && conn->errorHappened()){
+		delete conn;
+		conn = NULL;
+		DEBUG_PRINT("Error detected\n");
+	}*/
+	
+	if(conn == NULL){
+		conn = new Connection();
+		 DEBUG_PRINT("New connection object created\n");
+		conn->resolve("ec2-52-29-108-135.eu-central-1.compute.amazonaws.com");
+ 		//conn->resolve("fp7-intrepid.no-ip.biz");
+ 		//conn->resolve("jol2.ddns.net");
+	}
+	
 }
 
 
@@ -356,7 +412,7 @@ void bleInitComplete(BLE::InitializationCompleteCallbackContext *params)
 
 	
 	bikeSenseServicePtr = new BikeSenseService (ble, 0,2,0,4,0,0,0 /* initial values */);
-	nucleoSensors.setBluetoothServicePtr(bikeSenseServicePtr);
+	//nucleoSensors.setBluetoothServicePtr(bikeSenseServicePtr);
 	//uartServicePtr = new UARTService(ble);
 
 	/* setup advertising */
@@ -390,7 +446,8 @@ static void fona_prova(void){
  	ret = myFona.connect("ibox.tim.it",NULL,NULL);
  } while(ret!=0);
  //minar::Scheduler::postCallback(readGPS).period(minar::milliseconds(20000)).delay(minar::milliseconds(5000));
- minar::Scheduler::postCallback(resolve_dns).delay(minar::milliseconds(14000));
+  lwipv4_socket_init();
+ minar::Scheduler::postCallback(connectionChecker).delay(minar::milliseconds(14000));
 }
 
 /*static void periodicRead(){
