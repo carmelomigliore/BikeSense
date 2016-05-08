@@ -13,6 +13,8 @@
     "mbedtls": "^2.2.0",
     "sockets": "^1.1.0",
     "mbed-tls-sockets": "~0.1.0",
-    "x-nucleo-iks01a1": "^1.0.3"
+    "x-nucleo-iks01a1": "^1.0.3",
+    "mqttclient": "carmelomigliore/mqttclient",
+    "arduinojson": "^5.3.0"
   }
 }

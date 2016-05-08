@@ -29,21 +29,26 @@ public:
     const static uint16_t COMMAND_CHARACTERISTIC_UUID = 0xA005;
     const static uint16_t POTHOLE_CHARACTERISTIC_UUID = 0xA006;
     const static uint16_t ANTITHEFT_CHARACTERISTIC_UUID = 0xA007;
+    const static uint16_t KEY_CHARACTERISTIC_UUID = 0xA008;
 
     BikeSenseService(BLEDevice &_ble, uint16_t initialValueForGASCharacteristic, int16_t initialValueForTEMPCharacteristic, uint16_t initialValueForHUMIDITYCharacteristic, 
 		uint16_t initialValueForBATTERYCharacteristic, uint16_t initialValueForCOMMANDCharacteristic, uint8_t initialValueForPOTHOLECharacteristic, uint8_t initialValueForANTITHEFTCharacteristic) :
         ble(_ble), gasValue(GAS_VALUE_CHARACTERISTIC_UUID, &initialValueForGASCharacteristic), tempValue(TEMP_VALUE_CHARACTERISTIC_UUID, &initialValueForTEMPCharacteristic),
 	humidityValue(HUMIDITY_VALUE_CHARACTERISTIC_UUID, &initialValueForHUMIDITYCharacteristic), batteryValue(BATTERY_VALUE_CHARACTERISTIC_UUID, &initialValueForBATTERYCharacteristic),
 	command(COMMAND_CHARACTERISTIC_UUID, &initialValueForCOMMANDCharacteristic), pothole(POTHOLE_CHARACTERISTIC_UUID, &initialValueForPOTHOLECharacteristic, GattCharacteristic::BLE_GATT_CHAR_PROPERTIES_NOTIFY), 
-	antitheft(ANTITHEFT_CHARACTERISTIC_UUID ,&initialValueForANTITHEFTCharacteristic, GattCharacteristic::BLE_GATT_CHAR_PROPERTIES_NOTIFY)
+	antitheft(ANTITHEFT_CHARACTERISTIC_UUID ,&initialValueForANTITHEFTCharacteristic, GattCharacteristic::BLE_GATT_CHAR_PROPERTIES_NOTIFY), key(KEY_CHARACTERISTIC_UUID, initialkey)
     {
-        GattCharacteristic *charTable[] = {&gasValue, &tempValue, &humidityValue, &batteryValue, &command, &pothole, &antitheft};
+        GattCharacteristic *charTable[] = {&gasValue, &tempValue, &humidityValue, &batteryValue, &command, &pothole, &antitheft, &key};
         GattService         bikeSenseService(BIKESENSE_SERVICE_UUID, charTable, sizeof(charTable) / sizeof(GattCharacteristic *));
         ble.addService(bikeSenseService);
     }
 
     GattAttribute::Handle_t getCommandHandle() const {
         return command.getValueHandle();
+    }
+    
+    GattAttribute::Handle_t getKeyHandle() const {
+    	return key.getValueHandle();
     }
 
     void updateGasValue(uint16_t newValue) {
@@ -86,6 +91,8 @@ private:
     ReadWriteGattCharacteristic<uint16_t>  command;
     ReadWriteGattCharacteristic<uint8_t> pothole;
     ReadOnlyGattCharacteristic<uint8_t> antitheft;
+    WriteOnlyArrayGattCharacteristic<char,17> key;
+    char initialkey[17];
 };
 
 #endif /* #ifndef __BLE_BIKESENSE_SERVICE_H__ */
