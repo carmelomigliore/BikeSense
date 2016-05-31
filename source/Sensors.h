@@ -1,9 +1,14 @@
 #include "mbed-drivers/mbed.h"
 #include "x-nucleo-iks01a1/x_nucleo_iks01a1.h"
+#include "LMP91000.h"
 #include <cstdlib>
 
 #define ACCELEROMETER_PERIOD 200
 #define ENVSENSORS_PERIOD 10000
+#define SDA D14
+#define SCL D15
+#define ANALOGIN A3
+#define MENABLE D7
 
 
 typedef struct {
@@ -15,10 +20,28 @@ typedef struct {
 class Sensors {
 
 public:
-Sensors(mbed::util::FunctionPointer0<void> myJoltCallback, mbed::util::FunctionPointer0<void> mySensorsReadCallback): joltCallback(myJoltCallback), sensorsReadCallback(mySensorsReadCallback){
+Sensors(mbed::util::FunctionPointer0<void> myJoltCallback, mbed::util::FunctionPointer0<void> mySensorsReadCallback): joltCallback(myJoltCallback), sensorsReadCallback(mySensorsReadCallback), lmp(SDA,SCL), analogin(ANALOGIN), mEnable(MENABLE){
+	mEnable = 1;
+	wait_ms(50);
+	mems_expansion_board = X_NUCLEO_IKS01A1::Instance();
+	gyroscope = mems_expansion_board->GetGyroscope();
+	accelerometer = mems_expansion_board->GetAccelerometer();
+	magnetometer = mems_expansion_board->magnetometer;
+	humidity_sensor = mems_expansion_board->ht_sensor;;
+	pressure_sensor = mems_expansion_board->pt_sensor;
+	temp_sensor1 = mems_expansion_board->ht_sensor;
+	temp_sensor2 = mems_expansion_board->pt_sensor;
+	mEnable = 0;
+	wait_ms(50);
 	Old_ACC_Value.AXIS_X = 0;
 	Old_ACC_Value.AXIS_Y = 0;
 	Old_ACC_Value.AXIS_Z = 1000;
+	uint8_t res = lmp.configure( 
+            LMP91000_TIA_GAIN_350K,
+            LMP91000_REF_SOURCE_INT | LMP91000_INT_Z_20PCT,
+            LMP91000_FET_SHORT_DISABLED | LMP91000_OP_MODE_AMPEROMETRIC                  
+      );
+      mEnable = 1;
 }
 
 ~Sensors(){
@@ -98,7 +121,6 @@ void readAccelerometer(){
 		minX = ACC_Value.AXIS_X;
 	else if(ACC_Value.AXIS_Y > maxX)
 		maxX = ACC_Value.AXIS_X;
-	
 	if (ACC_Value.AXIS_Y < minY)
 		minY = ACC_Value.AXIS_Y;
 	else if(ACC_Value.AXIS_Y > maxY)
@@ -123,17 +145,25 @@ void readSensorValues(){
 	CALL_METH(temp_sensor1, GetTemperature, &TEMPERATURE_Value, 0.0f);
 	CALL_METH(pressure_sensor, GetPressure, &PRESSURE_Value, 0.0f);
 	CALL_METH(humidity_sensor, GetHumidity, &HUMIDITY_Value, 0.0f);
+	int read = 0;
+	for(int i =0; i< 10; i++){
+		read += analogin.read_u16();
+	}
+	read = (read / 10) - 12500;
+	float volt = (read * 3.3) / 65535;
+	float current = volt / 350000;
+	monoxide = current / 4e-9; // 4e-9 = sensitivity of the sensor, must be changed
 	minar::Scheduler::postCallback(sensorsReadCallback.bind());
 }
 
-X_NUCLEO_IKS01A1 *mems_expansion_board = X_NUCLEO_IKS01A1::Instance();
-GyroSensor *gyroscope = mems_expansion_board->GetGyroscope();
-MotionSensor *accelerometer = mems_expansion_board->GetAccelerometer();
-MagneticSensor *magnetometer = mems_expansion_board->magnetometer;
-HumiditySensor *humidity_sensor = mems_expansion_board->ht_sensor;;
-PressureSensor *pressure_sensor = mems_expansion_board->pt_sensor;
-TempSensor *temp_sensor1 = mems_expansion_board->ht_sensor;
-TempSensor *temp_sensor2 = mems_expansion_board->pt_sensor;
+X_NUCLEO_IKS01A1 *mems_expansion_board;
+GyroSensor *gyroscope;
+MotionSensor *accelerometer;
+MagneticSensor *magnetometer;
+HumiditySensor *humidity_sensor;
+PressureSensor *pressure_sensor;
+TempSensor *temp_sensor1;
+TempSensor *temp_sensor2;
 
 float TEMPERATURE_Value;
 float HUMIDITY_Value;
@@ -141,6 +171,9 @@ float PRESSURE_Value;
 float PRESSURE_Temp_Value;
 float monoxide=0;
 bool insensitiveToJolt = false;
+LMP91000 lmp;
+AnalogIn analogin;
+DigitalOut mEnable;
 int minX=0, maxX=0, minY=0, maxY=0, minZ=1000, maxZ=1000;
 AxesRaw_TypeDef MAG_Value;
 AxesRaw_TypeDef ACC_Value, Old_ACC_Value;
