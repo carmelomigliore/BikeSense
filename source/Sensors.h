@@ -3,8 +3,8 @@
 #include "LMP91000.h"
 #include <cstdlib>
 
-#define ACCELEROMETER_PERIOD 200
-#define ENVSENSORS_PERIOD 10000
+#define ACCELEROMETER_PERIOD 500
+#define ENVSENSORS_PERIOD 1000
 #define SDA D14
 #define SCL D15
 #define ANALOGIN A3
@@ -20,7 +20,7 @@ typedef struct {
 class Sensors {
 
 public:
-Sensors(mbed::util::FunctionPointer0<void> myJoltCallback, mbed::util::FunctionPointer0<void> mySensorsReadCallback): joltCallback(myJoltCallback), sensorsReadCallback(mySensorsReadCallback), lmp(SDA,SCL), analogin(ANALOGIN), mEnable(MENABLE){
+Sensors(mbed::util::FunctionPointer0<void> myJoltCallback, mbed::util::FunctionPointer0<void> mySensorsReadCallback): joltCallback(myJoltCallback), sensorsReadCallback(mySensorsReadCallback), lmp(SDA,SCL), analogin(ANALOGIN), mEnable(MENABLE), accValues(){
 	mEnable = 1;
 	wait_ms(50);
 	mems_expansion_board = X_NUCLEO_IKS01A1::Instance();
@@ -51,13 +51,17 @@ void startReading(){
 	mbed::util::FunctionPointer0<void> ptr (this, &Sensors::readAccelerometer);
 	accelerometerHandle = minar::Scheduler::postCallback(ptr.bind()).period(minar::milliseconds(ACCELEROMETER_PERIOD)).getHandle();
 	
-	mbed::util::FunctionPointer0<void> ptr2 (this, &Sensors::readSensorValues);
-	envsensorsHandle = minar::Scheduler::postCallback(ptr2.bind()).period(minar::milliseconds(ENVSENSORS_PERIOD)).getHandle();
+	//mbed::util::FunctionPointer0<void> ptr2 (this, &Sensors::readSensorValues);
+	//envsensorsHandle = minar::Scheduler::postCallback(ptr2.bind()).period(minar::milliseconds(ENVSENSORS_PERIOD)).getHandle();
 }
 
 void stopReading(){
 	minar::Scheduler::cancelCallback(accelerometerHandle);
 	minar::Scheduler::cancelCallback(envsensorsHandle);
+}
+
+std::vector<int32_t>& getAccValues(){
+	return accValues;
 }
 
 float getTemperature(){
@@ -109,6 +113,23 @@ void resetMinMax(){
 	maxZ = 1000;
 }
 
+void readSensorValues(){
+	
+	CALL_METH(temp_sensor1, GetTemperature, &TEMPERATURE_Value, 0.0f);
+	CALL_METH(pressure_sensor, GetPressure, &PRESSURE_Value, 0.0f);
+	CALL_METH(humidity_sensor, GetHumidity, &HUMIDITY_Value, 0.0f);
+	int read = 0;
+	for(int i =0; i< 10; i++){
+		read += analogin.read_u16();
+	}
+	DEBUG_PRINT("Read: %d", (int)(read/10));
+	read = (read / 10) - 12500;
+	float volt = (read * 3.3) / 65535;
+	float current = volt / 350000;
+	monoxide = current / 4e-9; // 4e-9 = sensitivity of the sensor, must be changed
+	minar::Scheduler::postCallback(sensorsReadCallback.bind());
+}
+
 private:
 
 void resetJoltSensitivity(){
@@ -134,26 +155,15 @@ void readAccelerometer(){
 	if(!insensitiveToJolt && (abs(ACC_Value.AXIS_X - Old_ACC_Value.AXIS_X) > 300 || abs(ACC_Value.AXIS_Y - Old_ACC_Value.AXIS_Y) > 300 || abs(ACC_Value.AXIS_Z - Old_ACC_Value.AXIS_Z) > 300 )){
 		minar::Scheduler::postCallback(joltCallback.bind());
 		insensitiveToJolt=true;
-		minar::Scheduler::postCallback(mbed::util::FunctionPointer0<void>(this, &Sensors::resetJoltSensitivity).bind()).delay(minar::milliseconds(3000));
-		
+		minar::Scheduler::postCallback(mbed::util::FunctionPointer0<void>(this, &Sensors::resetJoltSensitivity).bind()).delay(minar::milliseconds(3000));	
 	}
 	Old_ACC_Value = ACC_Value;
-}
-
-
-void readSensorValues(){
-	CALL_METH(temp_sensor1, GetTemperature, &TEMPERATURE_Value, 0.0f);
-	CALL_METH(pressure_sensor, GetPressure, &PRESSURE_Value, 0.0f);
-	CALL_METH(humidity_sensor, GetHumidity, &HUMIDITY_Value, 0.0f);
-	int read = 0;
-	for(int i =0; i< 10; i++){
-		read += analogin.read_u16();
+	if(accValues.size()<72){
+		accValues.push_back(ACC_Value.AXIS_X);
+		accValues.push_back(ACC_Value.AXIS_Y);
+		accValues.push_back(ACC_Value.AXIS_Z);
 	}
-	read = (read / 10) - 12500;
-	float volt = (read * 3.3) / 65535;
-	float current = volt / 350000;
-	monoxide = current / 4e-9; // 4e-9 = sensitivity of the sensor, must be changed
-	minar::Scheduler::postCallback(sensorsReadCallback.bind());
+	
 }
 
 X_NUCLEO_IKS01A1 *mems_expansion_board;
@@ -178,6 +188,7 @@ int minX=0, maxX=0, minY=0, maxY=0, minZ=1000, maxZ=1000;
 AxesRaw_TypeDef MAG_Value;
 AxesRaw_TypeDef ACC_Value, Old_ACC_Value;
 AxesRaw_TypeDef GYR_Value;
+std::vector<int32_t> accValues;
 
 mbed::util::FunctionPointer0<void> joltCallback, sensorsReadCallback;
 minar::callback_handle_t accelerometerHandle;

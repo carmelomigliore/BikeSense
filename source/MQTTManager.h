@@ -31,6 +31,10 @@ class MQTTManager{
 		network->connect((char*)hostname,port);
 	}
 	
+	void disconnect(){
+		network->disconnect();
+	}
+	
 	int publish(char* topic, char* payload){
 		MQTT::Message message;
 		message.qos = MQTT::QOS0;
@@ -38,7 +42,7 @@ class MQTTManager{
 		message.dup = false;
 		message.payload = (void*)payload;
 		message.payloadlen = strlen(payload)+1;
-		DEBUG_PRINT("Trying to publish something to topic %s\n",topic);
+		DEBUG_PRINT("Trying to publish something to topic %s, size: %d\n",topic, strlen(payload)+1);
 		return client->publish([](MQTT::Async<MQTTSocket, Countdown, DummyThread, DummyMutex>::Result* res){(void)res;}, topic,&message);
 	}
 	

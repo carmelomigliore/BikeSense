@@ -55,7 +55,9 @@ class BluetoothManager {
 		    ADV_CONNECTABLE_UNDIRECTED);
 		/* 1000ms. */
 		ble.gap().setAdvertisingInterval(1000);
-		ble.gap().startAdvertising();
+		button.fall(this, &BluetoothManager::temporaryAdvertising);
+		//temporaryAdvertising();
+		
 		DEBUG_PRINT("\nBLE init complete END\n");
 		minar::Scheduler::postCallback(bleInitCompleteCallback.bind());
 	}
@@ -85,6 +87,25 @@ class BluetoothManager {
         	}
         }
         
+        void getMacAddress(BLEProtocol::AddressBytes_t address){
+        	BLEProtocol::AddressType_t type;
+        	BLE::Instance().gap().getAddress(&type, address); //bug ST library?
+        }
+        
+        void temporaryAdvertising(){
+        	DEBUG_PRINT("Start advertising\n");
+        	minar::Scheduler::postCallback(mbed::util::FunctionPointer0<void>(this, &BluetoothManager::startAdvertising).bind());
+        	minar::Scheduler::postCallback(mbed::util::FunctionPointer0<void>(this, &BluetoothManager::stopAdvertising).bind()).delay(minar::milliseconds(30000)); 	
+        }
+        
+        void startAdvertising(){
+        	BLE::Instance().gap().startAdvertising();
+        }
+        
+        void stopAdvertising(){
+        	BLE::Instance().gap().stopAdvertising();
+        }
+        
 	
 	void disconnectionCallback(const Gap::DisconnectionCallbackParams_t *params)
 	{
@@ -105,7 +126,9 @@ class BluetoothManager {
 	static const char DEVICE_NAME[10];
 	static const uint16_t uuid16_list[1];
 	static char authstring[20];
+	static InterruptIn button;
 };
 const char BluetoothManager::DEVICE_NAME[10] = "BikeSense";
 const uint16_t BluetoothManager::uuid16_list[1] = {BikeSenseService::BIKESENSE_SERVICE_UUID};
 char BluetoothManager::authstring[20];
+InterruptIn BluetoothManager::button(USER_BUTTON);

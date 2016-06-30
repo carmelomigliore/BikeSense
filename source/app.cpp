@@ -15,9 +15,9 @@ static void blinky(void) {
 
 static ApplicationManager appmanager;  
 
-void app_start(int, char**) {
-    minar::Scheduler::postCallback(blinky).period(minar::milliseconds(1000));
-    appmanager.start();
+void app_start(int, char**) { 
+   minar::Scheduler::postCallback(blinky).period(minar::milliseconds(1000));
+   appmanager.start();
 }
 
 

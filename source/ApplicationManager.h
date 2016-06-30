@@ -5,17 +5,20 @@
 #include "Sensors.h"
 #include "arduinojson/ArduinoJson.h"
 #include "sal-stack-lwip/lwipv4_init.h"
+#include <sstream>
+#include <iterator>
+
 
 #define INPUT_TOPIC "SiteWhere/input/json"
 #define FONA_TX D8
 #define FONA_RX D2
 #define FONA_RESET D12
-#define GPS_PERIOD 40000
+#define GPS_PERIOD 20000
 
 #define APN "ibox.tim.it"
 #define DEFAULTMQTTUSERNAME "device"
 #define DEFAULTMQTTPASSWORD "password"
-#define DEFAULTHOSTNAME "ec2-52-29-108-135.eu-central-1.compute.amazonaws.com"
+#define DEFAULTHOSTNAME "ec2-52-59-21-67.eu-central-1.compute.amazonaws.com"
 #define DEFAULTAUTHSTRING "gokuvegeta123"
 #define PORT 1883
 
@@ -77,17 +80,39 @@ class ApplicationManager{
 	
 	void bluetoothStringReceived(const char* string){
 		DEBUG_PRINT("Bluetooth received %s", string);
-		strncpy(authstring, string, 80);
+		switch(string[0]){
+			case 'U': //USERNAME
+				strncpy(mqttusername, string+1, 80);
+				DEBUG_PRINT("USER: %s\n",mqttusername);
+				break;
+			case 'P': //PASSWORD
+				strncpy(mqttpassword, string+1, 80);
+				DEBUG_PRINT("PASSWORD: %s\n",mqttpassword);
+				break;
+			case 'D': //DOMAIN
+				strncpy(mqtthostname, string+1, 80);
+				DEBUG_PRINT("DOMAIN: %s\n",mqtthostname);
+				mqtt->disconnect();
+				delete mqtt;
+				mqtt = new MQTTManager((char*)mqttusername, (char *)mqttpassword, mbed::util::FunctionPointer0<void>(this, &ApplicationManager::onMQTTConnect), mbed::util::FunctionPointer0<void>(this, &ApplicationManager::onMQTTDisconnect), (char*)mqtthostname, PORT);
+				break;
+			case 'p': //PORT
+				break;
+			default:
+				DEBUG_PRINT("Mannaggia i pupi\n");
+				
+		}
+		//strncpy(authstring, string, 80);
 	}
 	
 	void onMQTTConnect(){
 		DEBUG_PRINT("OnMQTTConnect\n");
 		mqttconnected=true;
 		sensors.startReading();
-		if(!gpsScheduled){
-			minar::Scheduler::postCallback(mbed::util::FunctionPointer0<void>(this, &ApplicationManager::readGPS).bind());
-			gpsScheduled= true;
-		}
+		//if(!gpsScheduled){
+		minar::Scheduler::postCallback(mbed::util::FunctionPointer0<void>(this, &ApplicationManager::readGPS).bind());
+			//gpsScheduled= true;
+		//}
 		//minar::Scheduler::postCallback(mbed::util::FunctionPointer0<void>(this, &ApplicationManager::setFakePosition).bind()).period(minar::milliseconds(5000));
 	}
 	
@@ -112,9 +137,10 @@ class ApplicationManager{
 	}
 	
 	void sendMeasures(){
+		DEBUG_PRINT("Sending measures\n");
 		bluetooth.updateSensorsValue((int16_t)sensors.getTemperature(), (uint16_t)sensors.getHumidity(), (uint16_t)sensors.getMonoxide());
 		if(timestamp[0]!=0 && mqttconnected){
-		    StaticJsonBuffer<500> jsonmaker;
+		    StaticJsonBuffer<1500> jsonmaker;
 		    JsonObject& root = jsonmaker.createObject();
 		    root["hardwareId"] = authstring;
 		    root["type"] = "DeviceMeasurements";
@@ -122,22 +148,35 @@ class ApplicationManager{
 		    request["updateState"] = true;
 		    request["eventDate"] = timestamp;
 		    JsonObject& measurements = request.createNestedObject("measurements");
-		    measurements["temperature"].set(sensors.getTemperature(),1);
-		    measurements["humidity"] = (int)sensors.getHumidity();
-		    measurements["pressure"] = (int)sensors.getPressure();
-		    measurements["monoxide"].set(sensors.getMonoxide(),1);
-		    measurements["minX"] = sensors.getMinX();
+		    measurements["t"].set(sensors.getTemperature(),1);
+		    measurements["h"] = (int)sensors.getHumidity();
+		    measurements["p"] = (int)sensors.getPressure();
+		    measurements["m"].set(sensors.getMonoxide(),1);
+		    //JsonArray& accvalues = measurements.createNestedArray("accvalues");
+		    /*measurements["minX"] = sensors.getMinX();
 		    measurements["maxX"] = sensors.getMaxX();
 		    measurements["minY"] = sensors.getMinY();
 		    measurements["maxY"] = sensors.getMaxY();
 		    measurements["minZ"] = sensors.getMinZ();
-		    measurements["maxZ"] = sensors.getMaxZ();
+		    measurements["maxZ"] = sensors.getMaxZ();*/
+		    std::vector<int32_t>& vect = sensors.getAccValues();
+		    std::ostringstream oss;
+		    DEBUG_PRINT("Before for each\n");
+		    //for(int i = 0; i< vect.size(); i++){
+		    	std::copy(vect.begin(), vect.end()-1, std::ostream_iterator<int32_t>(oss, ","));
+		   // }
+		    oss << vect.back();
+		    DEBUG_PRINT("After foreach, %d\n", vect.back());
+		    JsonObject& metadata = request.createNestedObject("metadata");
+		    //metadata["accValues"] = oss.str().c_str(); 
 		    DEBUG_PRINT("MinX: %d\n", sensors.getMinX());
-		    char buf[500];
-		    root.printTo(buf,500);
+		    char buf[1500];
+		    root.printTo(buf,1500);
+		    DEBUG_PRINT("Json: %s", buf);
 		    mqtt->publish(INPUT_TOPIC,buf);
 		    sensors.resetMinMax();
     		}
+    		minar::Scheduler::postCallback(mbed::util::FunctionPointer0<void>(this, &ApplicationManager::readGPS).bind()).delay(minar::milliseconds(GPS_PERIOD));
 	}
 	
 	void enableGPS(bool enable){
@@ -154,6 +193,7 @@ class ApplicationManager{
 	}
 	
 	void onGPSRead(float latitude, float longitude, float altitude){
+	DEBUG_PRINT("Sending locations\n");
 		strncpy(timestamp, myFona.getTimestamp(),25);
 		if(timestamp[0]!=0 && mqttconnected){
 			StaticJsonBuffer<500> jsonmaker;
@@ -170,12 +210,14 @@ class ApplicationManager{
 		   	root.printTo(buf,300);
 		   	mqtt->publish(INPUT_TOPIC,buf);
 		}
-		minar::Scheduler::postCallback(mbed::util::FunctionPointer0<void>(this, &ApplicationManager::readGPS).bind()).delay(minar::milliseconds(GPS_PERIOD));
+		//minar::Scheduler::postCallback(mbed::util::FunctionPointer0<void>(this, &ApplicationManager::readGPS).bind()).delay(minar::milliseconds(GPS_PERIOD));
+		sensors.readSensorValues();
 	}
 	
 	void onGPSFail(){
 		DEBUG_PRINT("GPS has not made the FIX yet\n");
-		minar::Scheduler::postCallback(mbed::util::FunctionPointer0<void>(this, &ApplicationManager::readGPS).bind()).delay(minar::milliseconds(GPS_PERIOD));
+		//minar::Scheduler::postCallback(mbed::util::FunctionPointer0<void>(this, &ApplicationManager::readGPS).bind()).delay(minar::milliseconds(GPS_PERIOD));
+		sensors.readSensorValues();
 	}
 	
 	void joltDetected(){
