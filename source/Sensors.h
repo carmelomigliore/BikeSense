@@ -118,6 +118,7 @@ void readSensorValues(){
 	CALL_METH(temp_sensor1, GetTemperature, &TEMPERATURE_Value, 0.0f);
 	CALL_METH(pressure_sensor, GetPressure, &PRESSURE_Value, 0.0f);
 	CALL_METH(humidity_sensor, GetHumidity, &HUMIDITY_Value, 0.0f);
+	DEBUG_PRINT("\nTemperature: %d", (int)TEMPERATURE_Value);
 	int read = 0;
 	for(int i =0; i< 10; i++){
 		read += analogin.read_u16();

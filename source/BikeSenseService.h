@@ -30,15 +30,17 @@ public:
     const static uint16_t POTHOLE_CHARACTERISTIC_UUID = 0xA006;
     const static uint16_t ANTITHEFT_CHARACTERISTIC_UUID = 0xA007;
     const static uint16_t KEY_CHARACTERISTIC_UUID = 0xA008;
+    const static uint16_t ALARM_CHARACTERISTIC_UUID = 0xA009;
+    const static uint16_t MQTT_CHARACTERISTIC_UUID = 0xA00A;
 
     BikeSenseService(BLEDevice &_ble, uint16_t initialValueForGASCharacteristic, int16_t initialValueForTEMPCharacteristic, uint16_t initialValueForHUMIDITYCharacteristic, 
-		uint16_t initialValueForBATTERYCharacteristic, uint16_t initialValueForCOMMANDCharacteristic, uint8_t initialValueForPOTHOLECharacteristic, uint8_t initialValueForANTITHEFTCharacteristic) :
+		uint16_t initialValueForBATTERYCharacteristic, uint16_t initialValueForCOMMANDCharacteristic, uint8_t initialValueForPOTHOLECharacteristic, uint8_t initialValueForANTITHEFTCharacteristic, uint8_t initialValueForALARMCharacteristic, uint8_t initialValueForMQTTCharacteristic) :
         ble(_ble), gasValue(GAS_VALUE_CHARACTERISTIC_UUID, &initialValueForGASCharacteristic), tempValue(TEMP_VALUE_CHARACTERISTIC_UUID, &initialValueForTEMPCharacteristic),
 	humidityValue(HUMIDITY_VALUE_CHARACTERISTIC_UUID, &initialValueForHUMIDITYCharacteristic), batteryValue(BATTERY_VALUE_CHARACTERISTIC_UUID, &initialValueForBATTERYCharacteristic),
 	command(COMMAND_CHARACTERISTIC_UUID, &initialValueForCOMMANDCharacteristic), pothole(POTHOLE_CHARACTERISTIC_UUID, &initialValueForPOTHOLECharacteristic, GattCharacteristic::BLE_GATT_CHAR_PROPERTIES_NOTIFY), 
-	antitheft(ANTITHEFT_CHARACTERISTIC_UUID ,&initialValueForANTITHEFTCharacteristic, GattCharacteristic::BLE_GATT_CHAR_PROPERTIES_NOTIFY), key(KEY_CHARACTERISTIC_UUID, initialkey)
+	antitheft(ANTITHEFT_CHARACTERISTIC_UUID ,&initialValueForANTITHEFTCharacteristic, GattCharacteristic::BLE_GATT_CHAR_PROPERTIES_NOTIFY), key(KEY_CHARACTERISTIC_UUID, initialkey), alarm(ALARM_CHARACTERISTIC_UUID, &initialValueForALARMCharacteristic, GattCharacteristic::BLE_GATT_CHAR_PROPERTIES_NOTIFY), mqtt(MQTT_CHARACTERISTIC_UUID, &initialValueForMQTTCharacteristic)
     {
-        GattCharacteristic *charTable[] = {&gasValue, &tempValue, &humidityValue, &batteryValue, &command, &pothole, &antitheft, &key};
+        GattCharacteristic *charTable[] = {&gasValue, &tempValue, &humidityValue, &batteryValue, &command, &pothole, &antitheft, &key, &alarm, &mqtt};
         GattService         bikeSenseService(BIKESENSE_SERVICE_UUID, charTable, sizeof(charTable) / sizeof(GattCharacteristic *));
         ble.addService(bikeSenseService);
     }
@@ -81,6 +83,15 @@ public:
             (uint8_t *)&newValue, sizeof(uint8_t));
     }
     
+    void updateAlarmValue(uint8_t newValue) {
+        ble.updateCharacteristicValue(alarm.getValueHandle(), 
+            (uint8_t *)&newValue, sizeof(uint8_t));
+    }
+    
+    void updateMqttValue(uint8_t newValue) {
+        ble.updateCharacteristicValue(mqtt.getValueHandle(), 
+            (uint8_t *)&newValue, sizeof(uint8_t));
+    }
 
 private:
     BLEDevice                         &ble;
@@ -89,8 +100,10 @@ private:
     ReadOnlyGattCharacteristic<uint16_t>  humidityValue;
     ReadOnlyGattCharacteristic<uint16_t>  batteryValue;
     ReadWriteGattCharacteristic<uint16_t>  command;
-    ReadWriteGattCharacteristic<uint8_t> pothole;
+    ReadOnlyGattCharacteristic<uint8_t> pothole;
     ReadOnlyGattCharacteristic<uint8_t> antitheft;
+    ReadOnlyGattCharacteristic<uint8_t> alarm;
+    ReadOnlyGattCharacteristic<uint8_t> mqtt;
     WriteOnlyArrayGattCharacteristic<char,17> key;
     char initialkey[17];
 };

@@ -35,12 +35,13 @@ class BluetoothManager {
 		if(ble.getInstanceID() != BLE::DEFAULT_INSTANCE) {
 			return;
 		}
-
+		
+		ble.gap().onConnection<BluetoothManager>(this, &BluetoothManager::connectionCallback);
 		ble.gap().onDisconnection<BluetoothManager>(this, &BluetoothManager::disconnectionCallback);
 		ble.gattServer().onDataWritten<BluetoothManager>(this, &BluetoothManager::onDataWrittenCallback);
 
 	
-		bikeSenseServicePtr = new BikeSenseService (ble, 0,2,0,4,0,0,0 /* initial values */);
+		bikeSenseServicePtr = new BikeSenseService (ble, 0,2,0,4,0,0,0,0,0 /* initial values */);
 		
 		/* setup advertising */
 		ble.gap().accumulateAdvertisingPayload(GapAdvertisingData::BREDR_NOT_SUPPORTED
@@ -80,6 +81,7 @@ class BluetoothManager {
         }
         
         void updateSensorsValue(int16_t temperature, uint16_t humidity, uint16_t monoxide){
+        	DEBUG_PRINT("\ntemperature: %d", temperature);
         	if(bikeSenseServicePtr != NULL){
         		bikeSenseServicePtr->updateGasValue(monoxide);
         		bikeSenseServicePtr->updateTempValue(temperature);
@@ -87,9 +89,52 @@ class BluetoothManager {
         	}
         }
         
-        void getMacAddress(BLEProtocol::AddressBytes_t address){
+        void updatePothole(bool pothole){
+        	if(bikeSenseServicePtr != NULL)
+        		bikeSenseServicePtr->updatePotholeValue(pothole);
+        }
+        
+        void updateAlarm(bool alarm){
+        	if(bikeSenseServicePtr != NULL)
+        		bikeSenseServicePtr->updateAlarmValue(alarm);
+        }
+        
+        void updateMqtt(bool mqtt){
+        	if(bikeSenseServicePtr != NULL)
+        		bikeSenseServicePtr->updateMqttValue(mqtt);
+        }
+        
+        void getMacAddress(char hexadecimalNumber[]){
+        	uint8_t addr[6];
         	BLEProtocol::AddressType_t type;
-        	BLE::Instance().gap().getAddress(&type, address); //bug ST library?
+        	BLE::Instance().gap().getAddress(&type, addr); //bug ST library?
+        	
+		    int i = 0;
+		    int quotient, temp;
+		    for(int j = 5; j>= 0; j--){
+		    	quotient = addr[j];
+		    	
+			 while(quotient!=0){
+		 		temp = quotient % 16;
+
+	      			//To convert integer into character
+	     		    	if( temp < 10)
+		   			temp = temp + 48;
+			    	else
+					temp = temp + 55;
+
+				hexadecimalNumber[i++]= temp;
+				quotient = quotient / 16;
+			    }
+			    if(addr[j]< 16)
+		    		hexadecimalNumber[i++]= 48;
+		    	temp = hexadecimalNumber[i-1];
+		    	hexadecimalNumber[i-1] = hexadecimalNumber[i-2];
+		    	hexadecimalNumber[i-2] = temp;
+			if(j> 0)	
+		    		hexadecimalNumber[i++] = ':';
+		    }
+		hexadecimalNumber[i] = 0;
         }
         
         void temporaryAdvertising(){
@@ -109,7 +154,19 @@ class BluetoothManager {
 	
 	void disconnectionCallback(const Gap::DisconnectionCallbackParams_t *params)
 	{
-	      BLE::Instance().gap().startAdvertising();
+	      temporaryAdvertising();
+	      connected = false;
+	      
+	}
+	
+	void connectionCallback(const Gap::ConnectionCallbackParams_t *params)
+	{
+		stopAdvertising();
+		connected= true;
+	}
+	
+	bool isConnected(){
+		return connected;
 	}
 	
 	private:
@@ -127,6 +184,7 @@ class BluetoothManager {
 	static const uint16_t uuid16_list[1];
 	static char authstring[20];
 	static InterruptIn button;
+	bool connected=false;;
 };
 const char BluetoothManager::DEVICE_NAME[10] = "BikeSense";
 const uint16_t BluetoothManager::uuid16_list[1] = {BikeSenseService::BIKESENSE_SERVICE_UUID};

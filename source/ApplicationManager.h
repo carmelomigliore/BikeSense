@@ -9,11 +9,12 @@
 #include <iterator>
 
 
-#define INPUT_TOPIC "SiteWhere/input/json"
+#define INPUT_TOPIC "SiteWhere/input/jsonbatch"
 #define FONA_TX D8
 #define FONA_RX D2
 #define FONA_RESET D12
-#define GPS_PERIOD 20000
+#define DEFAULT_PERIOD 15000
+#define ANTITHEFT_PERIOD 30000
 
 #define APN "ibox.tim.it"
 #define DEFAULTMQTTUSERNAME "device"
@@ -61,10 +62,17 @@ class ApplicationManager{
 	
 	void onBLEInitComplete(){
 		DEBUG_PRINT("Connecting FONA\n");
-		int ret;
+		int ret, i=0;
 		do{
 			ret = myFona.connect(apn, NULL,NULL, mbed::util::FunctionPointer0<void>(this, &ApplicationManager::onFonaConnect));
-		}while(ret!=0);
+			i++;
+		}while(ret!=0 && i<3);
+		if(i == 3){
+			fonaispresent = false;
+			sensors.startReading();
+			sensors.readSensorValues();
+		}
+			
 	}
 	
 	void bluetoothCommandReceived(uint16_t command){
@@ -139,10 +147,10 @@ class ApplicationManager{
 	void sendMeasures(){
 		DEBUG_PRINT("Sending measures\n");
 		bluetooth.updateSensorsValue((int16_t)sensors.getTemperature(), (uint16_t)sensors.getHumidity(), (uint16_t)sensors.getMonoxide());
-		if(timestamp[0]!=0 && mqttconnected){
+		if(timestamp[0]!=0 && mqttconnected && !bluetooth.isConnected()){
 		    StaticJsonBuffer<1500> jsonmaker;
 		    JsonObject& root = jsonmaker.createObject();
-		    root["hardwareId"] = authstring;
+		    /*root["hardwareId"] = authstring;
 		    root["type"] = "DeviceMeasurements";
 		    JsonObject& request = root.createNestedObject("request");
 		    request["updateState"] = true;
@@ -153,12 +161,12 @@ class ApplicationManager{
 		    measurements["p"] = (int)sensors.getPressure();
 		    measurements["m"].set(sensors.getMonoxide(),1);
 		    //JsonArray& accvalues = measurements.createNestedArray("accvalues");
-		    /*measurements["minX"] = sensors.getMinX();
+		    measurements["minX"] = sensors.getMinX();
 		    measurements["maxX"] = sensors.getMaxX();
 		    measurements["minY"] = sensors.getMinY();
 		    measurements["maxY"] = sensors.getMaxY();
 		    measurements["minZ"] = sensors.getMinZ();
-		    measurements["maxZ"] = sensors.getMaxZ();*/
+		    measurements["maxZ"] = sensors.getMaxZ();
 		    std::vector<int32_t>& vect = sensors.getAccValues();
 		    std::ostringstream oss;
 		    DEBUG_PRINT("Before for each\n");
@@ -170,13 +178,51 @@ class ApplicationManager{
 		    JsonObject& metadata = request.createNestedObject("metadata");
 		    //metadata["accValues"] = oss.str().c_str(); 
 		    DEBUG_PRINT("MinX: %d\n", sensors.getMinX());
+		    
+		    
+		    DEBUG_PRINT("Json: %s", buf);*/
+		    DEBUG_PRINT("BARABBA0\n");
+		    char hexadecimalNumber[30];
+		    bluetooth.getMacAddress(hexadecimalNumber);  
+		    DEBUG_PRINT("BARABBA1\n");   
+		    root["hardwareId"] = hexadecimalNumber;
+		    JsonObject& request = jsonmaker.createObject();
+		    request["latitude"].set(latitude,5);
+		    request["longitude"].set(longitude,5);
+		    request["elevation"].set(altitude,2);
+		    request["updateState"] = true;
+		    request["eventDate"] = timestamp;
+		    JsonArray& locations = root.createNestedArray("locations");
+		    locations.add(request);
+		    DEBUG_PRINT("BARABBA3\n");
+		    JsonObject& dummy = jsonmaker.createObject();
+		    JsonObject& measurements = dummy.createNestedObject("measurements");
+		    measurements["t"].set(sensors.getTemperature(),1);
+		    measurements["h"] = (int)sensors.getHumidity();
+		    measurements["p"] = (int)sensors.getPressure();
+		    measurements["g"].set(sensors.getMonoxide(),1);
+		    measurements["minX"] = sensors.getMinX();
+		    measurements["maxX"] = sensors.getMaxX();
+		    measurements["minY"] = sensors.getMinY();
+		    measurements["maxY"] = sensors.getMaxY();
+		    measurements["minZ"] = sensors.getMinZ();
+		    measurements["maxZ"] = sensors.getMaxZ();
+		    
+		    JsonArray& measurearray = root.createNestedArray("measurements");
+		    measurearray.add(dummy);
 		    char buf[1500];
 		    root.printTo(buf,1500);
-		    DEBUG_PRINT("Json: %s", buf);
+		    DEBUG_PRINT("BARABBA4\n");
+		    //mqtt->publish(INPUT_TOPIC,buf);
 		    mqtt->publish(INPUT_TOPIC,buf);
+		    DEBUG_PRINT("BARABBA5\n");
 		    sensors.resetMinMax();
+		    
     		}
-    		minar::Scheduler::postCallback(mbed::util::FunctionPointer0<void>(this, &ApplicationManager::readGPS).bind()).delay(minar::milliseconds(GPS_PERIOD));
+    		if(fonaispresent)
+    			minar::Scheduler::postCallback(mbed::util::FunctionPointer0<void>(this, &ApplicationManager::readGPS).bind()).delay(minar::milliseconds(period));
+    		else
+    			minar::Scheduler::postCallback(mbed::util::FunctionPointer0<void>(&sensors, &Sensors::readSensorValues).bind()).delay(minar::milliseconds(period));
 	}
 	
 	void enableGPS(bool enable){
@@ -195,7 +241,10 @@ class ApplicationManager{
 	void onGPSRead(float latitude, float longitude, float altitude){
 	DEBUG_PRINT("Sending locations\n");
 		strncpy(timestamp, myFona.getTimestamp(),25);
-		if(timestamp[0]!=0 && mqttconnected){
+		this->latitude = latitude;
+		this->longitude = longitude;
+		this->altitude = altitude;
+		/*if(timestamp[0]!=0 && mqttconnected){
 			StaticJsonBuffer<500> jsonmaker;
 		    	JsonObject& root = jsonmaker.createObject();
 		    	root["hardwareId"] = authstring;
@@ -209,7 +258,7 @@ class ApplicationManager{
 		   	char buf[500];
 		   	root.printTo(buf,300);
 		   	mqtt->publish(INPUT_TOPIC,buf);
-		}
+		}*/
 		//minar::Scheduler::postCallback(mbed::util::FunctionPointer0<void>(this, &ApplicationManager::readGPS).bind()).delay(minar::milliseconds(GPS_PERIOD));
 		sensors.readSensorValues();
 	}
@@ -231,8 +280,10 @@ class ApplicationManager{
 	}
 	
 	void sendHole(){
-		if(timestamp[0]!=0 && mqttconnected){
-			StaticJsonBuffer<500> jsonmaker;
+		bluetooth.updatePothole(true);
+		DEBUG_PRINT("pothole");
+		/*if(timestamp[0]!=0 && mqttconnected){
+			StaticJsonBuffer<1500> jsonmaker;
 			JsonObject& root = jsonmaker.createObject();
 		    	root["hardwareId"] = authstring;
 		   	root["type"] = "DeviceAlert";
@@ -246,46 +297,83 @@ class ApplicationManager{
 		   	char buf[500];
 		    	root.printTo(buf,500);
 		   	mqtt->publish(INPUT_TOPIC,buf);
-		}
+		}*/
 	}
 	
 	void sendJoltAlarm(){
+		DEBUG_PRINT("Jolt Alarm\n");
+		bluetooth.updateAlarm(true);
 		if(mqttconnected){
-			StaticJsonBuffer<500> jsonmaker;	//send also if timestamp isn't available (no GPS fix)
+			StaticJsonBuffer<1500> jsonmaker;	//send also if timestamp isn't available (no GPS fix)
 			JsonObject& root = jsonmaker.createObject();
-		    	root["hardwareId"] = authstring;
-		   	root["type"] = "DeviceAlert";
-		   	JsonObject& request = root.createNestedObject("request");
-		   	request["type"] = "antitheft.alarm";
-		   	request["level"] = "Critical";
-		   	request["message"] = "Jolt antitheft alarm";
-		   	request["updateState"] = true;
-		   	request["eventDate"] = timestamp;
-		   	JsonObject& metadata = request.createNestedObject("metadata");
-		   	char buf[500];
-		    	root.printTo(buf,500);
+			char hexadecimalNumber[30];
+		        bluetooth.getMacAddress(hexadecimalNumber);   
+			root["hardwareId"] = hexadecimalNumber;
+			    JsonObject& request = jsonmaker.createObject();
+			    request["latitude"].set(latitude,5);
+			    request["longitude"].set(longitude,5);
+			    request["elevation"].set(altitude,2);
+			    request["updateState"] = true;
+			    request["eventDate"] = timestamp;
+			    JsonArray& locations = root.createNestedArray("locations");
+			    locations.add(request);
+			 
+			JsonArray& alerts =  root.createNestedArray("alerts");    
+		   	//root["type"] = "DeviceAlert";
+		   	JsonObject& alert = jsonmaker.createObject();
+		   	alert["type"] = "antitheft.alarm";
+		   	alert["level"] = "Critical";
+		   	alert["message"] = "Jolt antitheft alarm";
+		   	alert["updateState"] = true;
+		   	alert["eventDate"] = timestamp;
+		   	alerts.add(alert);
+		   	char buf[600];
+		    	root.printTo(buf,600);
 		   	mqtt->publish(INPUT_TOPIC,buf);
 	   	}
 	}
 	
 	void setAntitheft(bool enable){
-		if(mqttconnected){
-			StaticJsonBuffer<500> jsonmaker;	//send also if timestamp isn't available (no GPS fix)
+		
+		if(bluetooth.isConnected()){
+	   		antitheft = enable;
+		   	bluetooth.updateAntitheft(enable);
+		   	period = enable?ANTITHEFT_PERIOD:DEFAULT_PERIOD;
+		   	if(!enable)
+		   		bluetooth.updateAlarm(false);
+	   	}
+		else if(fonaispresent && mqttconnected){
+			StaticJsonBuffer<1500> jsonmaker;	//send also if timestamp isn't available (no GPS fix)
 			JsonObject& root = jsonmaker.createObject();
-		    	root["hardwareId"] = authstring;
-		   	root["type"] = "DeviceAlert";
-		   	JsonObject& request = root.createNestedObject("request");
-		   	request["type"] = enable ? "antitheft.on" : "antitheft.off";
-		   	request["level"] = "Info";
-		   	request["message"] = enable ? "Antitheft system activated" : "Antitheft system deactivated";
-		   	request["updateState"] = true;
-		   	request["eventDate"] = timestamp;
-		   	JsonObject& metadata = request.createNestedObject("metadata");
-		   	char buf[500];
-		    	root.printTo(buf,500);
+			char hexadecimalNumber[30];
+		        bluetooth.getMacAddress(hexadecimalNumber);   
+			root["hardwareId"] = hexadecimalNumber;
+			    JsonObject& request = jsonmaker.createObject();
+			    request["latitude"].set(latitude,5);
+			    request["longitude"].set(longitude,5);
+			    request["elevation"].set(altitude,2);
+			    request["updateState"] = true;
+			    request["eventDate"] = timestamp;
+			    JsonArray& locations = root.createNestedArray("locations");
+			    locations.add(request);
+			 
+			JsonArray& alerts =  root.createNestedArray("alerts");    
+		   	//root["type"] = "DeviceAlert";
+		   	JsonObject& alert = jsonmaker.createObject();
+		   	alert["type"] = enable ? "antitheft.on" : "antitheft.off";
+		   	alert["level"] = "Info";
+		   	alert["message"] = enable ? "Antitheft system activated" : "Antitheft system deactivated";
+		   	alert["updateState"] = true;
+		   	alert["eventDate"] = timestamp;
+		   	alerts.add(alert);
+		   	char buf[600];
+		    	root.printTo(buf,600);
 		   	mqtt->publish(INPUT_TOPIC,buf);
 		   	antitheft = enable;
 		   	bluetooth.updateAntitheft(enable);
+		   	period = enable?ANTITHEFT_PERIOD:DEFAULT_PERIOD;
+		   	if(!enable)
+		   		bluetooth.updateAlarm(false);
 	   	}
 	}
 	
@@ -305,7 +393,6 @@ class ApplicationManager{
 	BluetoothManager bluetooth;
 	MQTTManager *mqtt;
 	Sensors sensors;
-	bool gpsScheduled = false;
 	static char apn[30];
 	static char mqttusername[40];
 	static char mqttpassword[40];
@@ -313,8 +400,9 @@ class ApplicationManager{
 	static char timestamp[25];
 	static char authstring[80];
 	float latitude, longitude, altitude;
-	bool mqttconnected=false, gpsenabled=false, antitheft = false, ipstackinitialized = false;
+	bool mqttconnected=false, gpsenabled=false, antitheft = false, ipstackinitialized = false, fonaispresent = true;
 	int fakeposindex=0;
+	int period = DEFAULT_PERIOD;
 	static float fakepositions[53][2];
 };
 
