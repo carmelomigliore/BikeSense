@@ -17,14 +17,19 @@
 #define ANTITHEFT_PERIOD 30000
 
 #define APN "ibox.tim.it"
-#define DEFAULTMQTTUSERNAME "device"
-#define DEFAULTMQTTPASSWORD "password"
-#define DEFAULTHOSTNAME "ec2-52-59-21-67.eu-central-1.compute.amazonaws.com"
+#define DEFAULTMQTTUSERNAME "bike"
+#define DEFAULTMQTTPASSWORD "dswarm1.."
+//#define DEFAULTHOSTNAME "ec2-52-59-21-67.eu-central-1.compute.amazonaws.com"
+#define DEFAULTHOSTNAME "45.55.61.206"
 #define DEFAULTAUTHSTRING "gokuvegeta123"
 #define PORT 1883
 
+#define FONACHECKER_INPUT D5
+
 #define ANTITHEFT_ON 1
 #define ANTITHEFT_OFF 2
+#define ALWAYS_MQTT 3
+#define NOALWAYS_MQTT 4
 
 #ifdef DEBUGPRINT
 #define DEBUG_PRINT(fmt, args...)    printf(fmt, ## args)
@@ -38,7 +43,7 @@ class ApplicationManager{
 	
 	ApplicationManager(): myFona(FONA_TX,FONA_RX,FONA_RESET, mbed::util::FunctionPointer3<void, float, float, float>(this, &ApplicationManager::onGPSRead), mbed::util::FunctionPointer0<void>(this, &ApplicationManager::onGPSFail)), 
 	bluetooth(mbed::util::FunctionPointer0<void>(this, &ApplicationManager::onBLEInitComplete), mbed::util::FunctionPointer1<void, uint16_t>(this, &ApplicationManager::bluetoothCommandReceived), mbed::util::FunctionPointer1<void, const char*> (this, &ApplicationManager::bluetoothStringReceived)), 
-	sensors(mbed::util::FunctionPointer0<void>(this, &ApplicationManager::joltDetected), mbed::util::FunctionPointer0<void>(this, &ApplicationManager::sendMeasures)){
+	sensors(mbed::util::FunctionPointer0<void>(this, &ApplicationManager::joltDetected), mbed::util::FunctionPointer0<void>(this, &ApplicationManager::sendMeasures)), fonachecker(FONACHECKER_INPUT){
 		//printf("Size: %d\n", sizeof(myFona));
 		strncpy(apn, APN, 30);
 		strncpy(authstring, DEFAULTAUTHSTRING, 80);
@@ -61,13 +66,15 @@ class ApplicationManager{
 	private:
 	
 	void onBLEInitComplete(){
-		DEBUG_PRINT("Connecting FONA\n");
-		int ret, i=0;
-		do{
-			ret = myFona.connect(apn, NULL,NULL, mbed::util::FunctionPointer0<void>(this, &ApplicationManager::onFonaConnect));
-			i++;
-		}while(ret!=0 && i<3);
-		if(i == 3){
+		if(fonachecker == 0){
+			DEBUG_PRINT("Connecting FONA\n");
+			int ret;
+			do{
+				ret = myFona.connect(apn, NULL,NULL, mbed::util::FunctionPointer0<void>(this, &ApplicationManager::onFonaConnect));
+			}while(ret!=0);
+		}
+		else{
+			DEBUG_PRINT("FONA NOT PRESENT\n");
 			fonaispresent = false;
 			sensors.startReading();
 			sensors.readSensorValues();
@@ -82,6 +89,12 @@ class ApplicationManager{
 				break;
 			case ANTITHEFT_OFF:
 				setAntitheft(false);
+				break;
+			case ALWAYS_MQTT:
+				alwaysmqtt = true;
+				break;
+			case NOALWAYS_MQTT:
+				alwaysmqtt = false;
 				break;
 		}
 	}
@@ -106,8 +119,8 @@ class ApplicationManager{
 				break;
 			case 'p': //PORT
 				break;
-			default:
-				DEBUG_PRINT("Mannaggia i pupi\n");
+			default: ;
+
 				
 		}
 		//strncpy(authstring, string, 80);
@@ -117,14 +130,15 @@ class ApplicationManager{
 		DEBUG_PRINT("OnMQTTConnect\n");
 		mqttconnected=true;
 		sensors.startReading();
-		//if(!gpsScheduled){
-		minar::Scheduler::postCallback(mbed::util::FunctionPointer0<void>(this, &ApplicationManager::readGPS).bind());
-			//gpsScheduled= true;
-		//}
+		if(!gpsScheduled){
+			minar::Scheduler::postCallback(mbed::util::FunctionPointer0<void>(this, &ApplicationManager::readGPS).bind());
+			gpsScheduled= true;
+		}
 		//minar::Scheduler::postCallback(mbed::util::FunctionPointer0<void>(this, &ApplicationManager::setFakePosition).bind()).period(minar::milliseconds(5000));
 	}
 	
 	void onMQTTDisconnect(){
+		DEBUG_PRINT("OnMQTTDisconnect\n");
 		mqttconnected=false;
 		mqtt->connect();  //si può fare meglio?
 
@@ -147,7 +161,7 @@ class ApplicationManager{
 	void sendMeasures(){
 		DEBUG_PRINT("Sending measures\n");
 		bluetooth.updateSensorsValue((int16_t)sensors.getTemperature(), (uint16_t)sensors.getHumidity(), (uint16_t)sensors.getMonoxide());
-		if(timestamp[0]!=0 && mqttconnected && !bluetooth.isConnected()){
+		if(timestamp[0]!=0 && mqttconnected && (alwaysmqtt || !bluetooth.isConnected())){
 		    StaticJsonBuffer<1500> jsonmaker;
 		    JsonObject& root = jsonmaker.createObject();
 		    /*root["hardwareId"] = authstring;
@@ -181,10 +195,10 @@ class ApplicationManager{
 		    
 		    
 		    DEBUG_PRINT("Json: %s", buf);*/
-		    DEBUG_PRINT("BARABBA0\n");
+
 		    char hexadecimalNumber[30];
 		    bluetooth.getMacAddress(hexadecimalNumber);  
-		    DEBUG_PRINT("BARABBA1\n");   
+
 		    root["hardwareId"] = hexadecimalNumber;
 		    JsonObject& request = jsonmaker.createObject();
 		    request["latitude"].set(latitude,5);
@@ -194,7 +208,7 @@ class ApplicationManager{
 		    request["eventDate"] = timestamp;
 		    JsonArray& locations = root.createNestedArray("locations");
 		    locations.add(request);
-		    DEBUG_PRINT("BARABBA3\n");
+
 		    JsonObject& dummy = jsonmaker.createObject();
 		    JsonObject& measurements = dummy.createNestedObject("measurements");
 		    measurements["t"].set(sensors.getTemperature(),1);
@@ -207,21 +221,24 @@ class ApplicationManager{
 		    measurements["maxY"] = sensors.getMaxY();
 		    measurements["minZ"] = sensors.getMinZ();
 		    measurements["maxZ"] = sensors.getMaxZ();
-		    
+		    dummy["updateState"] = true;
+		    dummy["eventDate"] = timestamp;
 		    JsonArray& measurearray = root.createNestedArray("measurements");
 		    measurearray.add(dummy);
 		    char buf[1500];
 		    root.printTo(buf,1500);
-		    DEBUG_PRINT("BARABBA4\n");
+
 		    //mqtt->publish(INPUT_TOPIC,buf);
 		    mqtt->publish(INPUT_TOPIC,buf);
-		    DEBUG_PRINT("BARABBA5\n");
+
 		    sensors.resetMinMax();
 		    
     		}
-    		if(fonaispresent)
+    		if(fonaispresent && !gpsScheduled){
     			minar::Scheduler::postCallback(mbed::util::FunctionPointer0<void>(this, &ApplicationManager::readGPS).bind()).delay(minar::milliseconds(period));
-    		else
+    			gpsScheduled = true;
+    		}
+    		else if (!fonaispresent)
     			minar::Scheduler::postCallback(mbed::util::FunctionPointer0<void>(&sensors, &Sensors::readSensorValues).bind()).delay(minar::milliseconds(period));
 	}
 	
@@ -240,6 +257,7 @@ class ApplicationManager{
 	
 	void onGPSRead(float latitude, float longitude, float altitude){
 	DEBUG_PRINT("Sending locations\n");
+		gpsScheduled = false;
 		strncpy(timestamp, myFona.getTimestamp(),25);
 		this->latitude = latitude;
 		this->longitude = longitude;
@@ -265,6 +283,7 @@ class ApplicationManager{
 	
 	void onGPSFail(){
 		DEBUG_PRINT("GPS has not made the FIX yet\n");
+		gpsScheduled = false;
 		//minar::Scheduler::postCallback(mbed::util::FunctionPointer0<void>(this, &ApplicationManager::readGPS).bind()).delay(minar::milliseconds(GPS_PERIOD));
 		sensors.readSensorValues();
 	}
@@ -400,10 +419,11 @@ class ApplicationManager{
 	static char timestamp[25];
 	static char authstring[80];
 	float latitude, longitude, altitude;
-	bool mqttconnected=false, gpsenabled=false, antitheft = false, ipstackinitialized = false, fonaispresent = true;
+	bool mqttconnected=false, gpsenabled=false, antitheft = false, ipstackinitialized = false, fonaispresent = true, gpsScheduled=false, alwaysmqtt=false;
 	int fakeposindex=0;
 	int period = DEFAULT_PERIOD;
 	static float fakepositions[53][2];
+	DigitalInput fonachecker; //HIGH = Only Bluetooth, LOW = FONA
 };
 
 char ApplicationManager::apn[30];
